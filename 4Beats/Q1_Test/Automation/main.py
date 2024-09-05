@@ -1,91 +1,86 @@
+import selenium
 import openpyxl
+import datetime
+import time
+from openpyxl import load_workbook
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from datetime import datetime
+from selenium.webdriver.chrome.service import Service
 
+# Get current day of the week
+current_datetime = datetime.datetime.now()
+current_day = current_datetime.strftime("%A")
+print(f"Current Day: {current_day}")
 
-def find_longest_shortest_options(driver, keyword):
-    print(f"Attempting to search for keyword: {keyword}")
-    try:
-        search_box = driver.find_element(By.NAME, "q")
-        print("Search box found, entering keyword...")
-        search_box.clear()
-        search_box.send_keys(keyword)
-        search_box.send_keys(Keys.RETURN)
-        print("Keyword entered, waiting for suggestions...")
+# Load the Excel workbook and sheet corresponding to the current day
+filename = r"4BeatsQ1.xlsx"
+df = load_workbook(filename)
+if current_day not in df.sheetnames:
+    print(f"No sheet found for {current_day}")
+    exit()
 
-        driver.implicitly_wait(5)
-        suggestions = driver.find_elements(By.XPATH, '//li[@role="presentation"]//span')
-        print(f"Found {len(suggestions)} suggestions.")
+sheet = df[current_day]
 
-        if not suggestions:
-            print(f"No suggestions found for keyword: {keyword}")
-            return None, None
+# Number of keywords, or you can dynamically count the number of rows with keywords
+num_keywords = 10  # Update this to the number of keywords in your sheet
 
-        options = [suggestion.text for suggestion in suggestions]
-        longest_option = max(options, key=len)
-        shortest_option = min(options, key=len)
-        print(f"Longest option: {longest_option}, Shortest option: {shortest_option}")
-        return longest_option, shortest_option
+# Set up ChromeDriver
+service = Service(r'path_to_your_chromedriver')  # Update this path
+driver = webdriver.Chrome(service=service)
 
-    except Exception as e:
-        print(f"Error during search for keyword '{keyword}': {e}")
-        return None, None
+# Iterate through the keywords
+for row in range(3, 3 + num_keywords):
+    keyword = sheet[f'C{row}'].value
+    if not keyword:
+        print(f"Empty keyword at row {row}, skipping.")
+        continue
 
+    print(f"Searching for keyword: {keyword}")
 
-def main():
-    excel_file_path = r'E:\Python\Interview\4BeatsQ1.xlsx'
+    # Perform Google search
+    driver.get("https://www.google.com/")
+    search_box = driver.find_element(By.NAME, "q")
+    search_box.clear()
+    search_box.send_keys(keyword)
+    search_box.submit()
 
-    print("Loading Excel workbook...")
-    try:
-        workbook = openpyxl.load_workbook(excel_file_path)
-        print(f"Excel workbook loaded from: {excel_file_path}")
-    except Exception as e:
-        print(f"Error loading Excel file: {e}")
-        return
+    # Wait for search suggestions to load
+    time.sleep(2)
 
-    day_of_week = datetime.now().strftime('%A')
-    print(f"Today is: {day_of_week}")
+    # Get suggestions
+    options = driver.find_elements(By.XPATH, '//li[@role="presentation"]//span')
 
-    try:
-        sheet = workbook[day_of_week]
-        print(f"Working on sheet: {day_of_week}")
-    except KeyError:
-        print(f"No sheet found for {day_of_week}")
-        return
+    if not options:
+        print(f"No autocomplete options found for keyword: {keyword}")
+        continue
 
-    print("Setting up WebDriver...")
-    try:
-        service = Service(r'C:\Users\User\.wdm\drivers\chromedriver\win64\128.0.6613.86\chromedriver-win32')
-        driver = webdriver.Chrome(service=service)
-        driver.get("https://www.google.com")
-        print("WebDriver set up and Google loaded.")
-    except Exception as e:
-        print(f"Error setting up WebDriver: {e}")
-        return
+    # Initialize longest and shortest with the first suggestion
+    longest = options[0].text
+    shortest = options[0].text
+    len_longest = len(longest)
+    len_shortest = len(shortest)
 
-    for row in sheet.iter_rows(min_row=2, max_col=1):
-        keyword = row[0].value
-        if keyword:
-            print(f"Searching for keyword: {keyword}")
-            longest, shortest = find_longest_shortest_options(driver, keyword)
-            if longest and shortest:
-                sheet.cell(row=row[0].row, column=2).value = longest
-                sheet.cell(row=row[0].row, column=3).value = shortest
-                print(f"Longest: {longest}, Shortest: {shortest}")
+    # Find the longest and shortest suggestions
+    for option in options[1:]:
+        suggestion_text = option.text
 
-    print("Saving the workbook...")
-    try:
-        workbook.save(excel_file_path)
-        print(f"Workbook saved successfully at {excel_file_path}")
-    except Exception as e:
-        print(f"Error saving Excel file: {e}")
+        if len(suggestion_text) > len_longest:
+            longest = suggestion_text
+            len_longest = len(suggestion_text)
 
-    driver.quit()
-    print("Browser closed.")
+        if len(suggestion_text) < len_shortest:
+            shortest = suggestion_text
+            len_shortest = len(shortest)
 
+    # Save the longest and shortest suggestions back to Excel
+    sheet[f'D{row}'] = longest
+    sheet[f'E{row}'] = shortest
 
-if __name__ == "__main__":
-    main()
+    print(f"Longest search suggestion: {longest}")
+    print(f"Shortest search suggestion: {shortest}")
+    print()
+
+# Close the browser and save the updated Excel file
+driver.quit()
+df.save(filename)
+print("Keyword searching - Completed")
